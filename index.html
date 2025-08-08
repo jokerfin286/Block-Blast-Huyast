@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<title>Block Blast Huyast — Final</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root{--cell-size:52px;--gap:6px}
+  *{box-sizing:border-box}
+  body{
+    background:#0f1220;color:#eef1f7;font-family:Inter,system-ui,Arial;
+    margin:16px;display:flex;flex-direction:column;align-items:center;
+    user-select:none;
+  }
+  h1{margin:8px 0 6px;color:#ffd166}
+  .topbar{display:flex;gap:16px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+  #score{font-weight:700;color:#ffd166}
+  #combo{color:#9ad3bc}
+  .btn{background:#1b2030;padding:6px 10px;border-radius:8px;border:1px solid #2a3042;cursor:pointer}
+
+  #boardWrap{background:#11121a;padding:12px;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,0.6)}
+  #game{
+    display:grid;grid-template-columns:repeat(8,var(--cell-size));grid-gap:var(--gap);width:max-content;
+    touch-action:none;
+  }
+  .cell{
+    width:var(--cell-size);height:var(--cell-size);background:#171824;border-radius:8px;border:1px solid #2a2f45;
+    display:flex;align-items:center;justify-content:center;
+    transition:box-shadow .12s,transform .12s,background-color .12s, outline-color .12s
+  }
+  .cell.highlight{box-shadow:0 0 12px #5eead4;transform:translateY(-4px)}
+  /* Подсветка потенциальной очистки линии */
+  .cell.will-clear{
+    background-color:#0f1a12;
+    box-shadow:0 0 14px rgba(34,197,94,.55), inset 0 0 0 2px #22c55e;
+  }
+  .cell.filled>.block{opacity:1;transform:scale(1)}
+  .block{
+    width:calc(var(--cell-size) - 8px);height:calc(var(--cell-size) - 8px);
+    border-radius:8px;box-shadow:0 6px 14px rgba(0,0,0,0.45);
+    opacity:0;transform:scale(.92);transition:transform .12s,opacity .12s
+  }
+  .color-0{background:linear-gradient(135deg,#ff6b6b,#e94e4e)}
+  .color-1{background:linear-gradient(135deg,#4db6ff,#2b8cff)}
+  .color-2{background:linear-gradient(135deg,#ffd166,#e6b800)}
+  .color-3{background:linear-gradient(135deg,#7bed9f,#3bd46f)}
+  .color-4{background:linear-gradient(135deg,#caa2ff,#9a6bff)}
+  .color-5{background:linear-gradient(135deg,#ffb47d,#ff7f2a)}
+  .color-6{background:linear-gradient(135deg,#7fe3d7,#2fb7a7)}
+
+  #pieces{display:flex;gap:12px;margin-top:14px;flex-wrap:wrap}
+  .pieceWrap{background:rgba(255,255,255,0.03);padding:8px;border-radius:10px;display:flex;flex-direction:column;align-items:center}
+  .piece{display:grid;gap:6px;cursor:grab;-webkit-user-drag:element}
+  .piece.selected{background:#0b0c12;border-radius:8px;padding:6px}
+  .cellMini{width:var(--cell-size);height:var(--cell-size);display:flex;align-items:center;justify-content:center}
+  .piece .block{opacity:1;transform:scale(1)}
+
+  /* Ghost preview */
+  #ghost{position:fixed;pointer-events:none;display:none;z-index:9999;opacity:.9;transform:translateZ(0)}
+  #ghost .gblock{width:calc(var(--cell-size) - 8px);height:calc(var(--cell-size) - 8px);border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.12);opacity:.95}
+  #ghost.invalid .gblock{filter:grayscale(.2);opacity:.85}
+
+  /* Таблица рекордов */
+  #highscores {
+    margin-top: 20px;
+    width: 280px;
+    background: #11121a;
+    border-radius: 12px;
+    padding: 10px 14px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+    color: #ffd166;
+    font-weight: 700;
+  }
+  #highscores h2 { margin: 0 0 10px 0; font-size: 18px; text-align: center; }
+  #highscores table { width: 100%; border-collapse: collapse; }
+  #highscores th, #highscores td { padding: 6px 8px; border-bottom: 1px solid #2a2f45; text-align: left; }
+  #highscores th { color: #9ad3bc; }
+
+  /* Модальное окно ввода ника */
+  #nicknameModal {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.75);
+    display: none; align-items: center; justify-content: center; z-index: 10000;
+  }
+  #nicknameModalContent {
+    background: #11121a; padding: 20px 30px; border-radius: 12px; text-align: center; color: #ffd166;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+  }
+  #nicknameModalContent input {
+    width: 180px; padding: 6px 10px; border-radius: 8px; border: 1px solid #2a3042;
+    background: #1b2030; color: #eee; font-size: 16px; margin-top: 12px;
+  }
+  #nicknameModalContent button {
+    margin-top: 12px; padding: 8px 20px; border-radius: 8px; border: none; background: #ffd166; color: #111; font-weight: 700; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<h1>Block Blast Huyast</h1>
+<div class="topbar">
+  <div id="score">Очки: 0</div>
+  <div id="combo" style="display:none">Комбо x1</div>
+  <button class="btn" id="resetBtn">Новая игра</button>
+</div>
+<div id="boardWrap"><div id="game"></div></div>
+<div id="pieces"></div>
+<div id="ghost"></div>
+
+ Модалка для ника 
+<div id="nicknameModal">
+  <div id="nicknameModalContent">
+    <div>Введите ваш ник:</div>
+    <input type="text" id="nicknameInput" maxlength="15" placeholder="Ваш ник" />
+    <br/>
+    <button id="startGameBtn">Начать игру</button>
+  </div>
+</div>
+
+ Таблица рекордов 
+<div id="highscores">
+  <h2>Таблица рекордов</h2>
+  <table>
+    <thead>
+      <tr><th>Место</th><th>Ник</th><th>Очки</th></tr>
+    </thead>
+    <tbody id="highscoresBody"></tbody>
+  </table>
+</div>
+
+<script>
+const ROWS = 8, COLS = 8, COLORS = 7, MAX_GENERATE_TRIES = 400;
+const SHAPES = [
+  // Базовые
+  [[1]],
+  [[1,1]], [[1],[1]],
+  [[1,1,1]], [[1],[1],[1]],
+  [[1,1],[1,1]],
+  [[1,1,1],[1,1,1]], [[1,1],[1,1],[1,1]],
+  [[1,0],[1,1]], [[0,1],[1,1]], [[1,1],[1,0]], [[1,1],[0,1]],
+  [[1,0,0],[1,0,0],[1,1,1]], [[0,0,1],[0,0,1],[1,1,1]],
+  [[1,1,1],[1,0,0],[1,0,0]], [[1,1,1],[0,0,1],[0,0,1]],
+  [[1,1,1],[0,1,0]], [[0,1,0],[1,1,1]],
+  [[1,0,0],[1,1,1]], [[0,0,1],[1,1,1]],
+  [[1,1,1],[0,1,0]], [[0,1,0],[1,1,1]],
+  [[1,1,0],[0,1,1]], [[0,1,1],[1,1,0]],
+  [[1,1,0],[0,1,1]], [[0,1,1],[1,1,0]],
+  [[1,0],[1,1],[0,1]], [[0,1],[1,1],[1,0]],
+  [[1,0,1],[0,1,0]], [[1,0,1],[1,1,1]],
+  [[1,1,0],[1,0,0]], [[0,1,1],[0,0,1]],
+  [[1,0],[1,0],[1,0]], [[1,0,0],[1,1,0]], [[0,0,1],[0,1,1]],
+  [[1,0,0],[1,0,0],[1,0,0]], [[0,1,0],[0,1,0],[0,1,0]],
+  // Новые формы
+  [[1,1,1,1]],
+  [[1],[1],[1],[1]],
+  [[1,1,1,1,1]],
+  [[1],[1],[1],[1],[1]],
+  [[1,1,1],[1,1,1],[1,1,1]],
+  [[0,1,0],[1,1,1],[0,1,0]],
+  [[1,1,1,1],[1,1,1,1]],
+  [[1,1],[1,1],[1,1],[1,1]],
+  [[1,1,1],[1,0,0],[1,0,0]],
+  [[1,1,1],[0,0,1],[0,0,1]],
+  [[0,1,1,0],[1,1,1,1],[0,1,1,0]],
+  [[1,1,0,0],[0,1,1,0],[0,0,1,1]],
+];
+
+let field = new Array(ROWS*COLS).fill(null);
+let currentPieces = [];
+let score = 0, combo = 0;
+let playerName = '';
+
+const gameEl = document.getElementById('game');
+const piecesEl = document.getElementById('pieces');
+const ghostEl = document.getElementById('ghost');
+const scoreEl = document.getElementById('score');
+const comboEl = document.getElementById('combo');
+const resetBtn = document.getElementById('resetBtn');
+
+const nicknameModal = document.getElementById('nicknameModal');
+const nicknameInput = document.getElementById('nicknameInput');
+const startGameBtn = document.getElementById('startGameBtn');
+
+const highscoresBody = document.getElementById('highscoresBody');
+
+const STORAGE_KEY = 'blockblast_huyast_highscores';
+const NAME_KEY = 'blockblast_huyast_player';
+
+function rand(n){return Math.floor(Math.random()*n)}
+function makeInstance(tpl){
+  const color = rand(COLORS);
+  return tpl.map(r => r.map(v => v ? color : null));
+}
+function rcToIndex(r,c){ return r*COLS + c }
+function indexToRC(index){ return { r: Math.floor(index/COLS), c: index % COLS } }
+
+/* Anchor: центр фигуры */
+function getPieceAnchor(piece){
+  const rows = piece.length;
+  const cols = piece[0]?.length || 0;
+  return { ax: Math.floor(cols/2), ay: Math.floor(rows/2) };
+}
+
+/* Поле */
+function initBoard(){
+  gameEl.innerHTML='';
+  for(let i=0;i<ROWS*COLS;i++){
+    const cell=document.createElement('div');
+    cell.className='cell';
+    cell.dataset.index=i;
+    cell.addEventListener('dragover', e=>e.preventDefault());
+    cell.addEventListener('drop', onDrop);
+    cell.addEventListener('dragenter', onCellDragEnter);
+    cell.addEventListener('dragleave', onCellDragLeave);
+    gameEl.appendChild(cell);
+  }
+}
+function renderField(){
+  for(let i=0;i<ROWS*COLS;i++){
+    const el = gameEl.children[i];
+    el.innerHTML='';
+    el.classList.remove('filled','highlight','will-clear');
+    if(field[i]!==null){
+      const b=document.createElement('div');
+      b.className='block color-'+field[i];
+      el.appendChild(b);
+      el.classList.add('filled');
+    }
+  }
+}
+
+/* Проверки/операции */
+function canPlaceAt(r,c,shape){
+  for(let i=0;i<shape.length;i++){
+    for(let j=0;j<(shape[i]||[]).length;j++){
+      if(shape[i][j]!==null){
+        const rr=r+i, cc=c+j;
+        if(rr<0||rr>=ROWS||cc<0||cc>=COLS) return false;
+        if(field[rr*COLS+cc]!==null) return false;
+      }
+    }
+  }
+  return true;
+}
+function canPlaceAny(shape){
+  for(let r=0;r<ROWS;r++){
+    for(let c=0;c<COLS;c++){
+      if(canPlaceAt(r,c,shape)) return true;
+    }
+  }
+  return false;
+}
+function canPlaceAnyPieces(pieces){
+  for(let p of pieces){
+    if(canPlaceAny(p)) return true;
+  }
+  return false;
+}
+function placeShape(r,c,shape){
+  for(let i=0;i<shape.length;i++){
+    for(let j=0;j<(shape[i]||[]).length;j++){
+      if(shape[i][j]!==null){
+        field[(r+i)*COLS+(c+j)] = shape[i][j];
+      }
+    }
+  }
+}
+function clearLines(){
+  let cleared = 0;
+  for(let r=0;r<ROWS;r++){
+    let fullRow=true;
+    for(let c=0;c<COLS;c++){
+      if(field[r*COLS+c]===null) { fullRow=false; break; }
+    }
+    if(fullRow){
+      for(let c=0;c<COLS;c++){
+        field[r*COLS+c] = null;
+      }
+      cleared++;
+    }
+  }
+  for(let c=0;c<COLS;c++){
+    let fullCol=true;
+    for(let r=0;r<ROWS;r++){
+      if(field[r*COLS+c]===null) { fullCol=false; break; }
+    }
+    if(fullCol){
+      for(let r=0;r<ROWS;r++){
+        field[r*COLS+c]=null;
+      }
+      cleared++;
+    }
+  }
+  return cleared;
+}
+
+/* Генерация троек */
+function generatePieces(){
+  const newPieces = [];
+  for(let k=0;k<3;k++){
+    let tries=0;
+    let piece;
+    do {
+      piece = makeInstance(SHAPES[rand(SHAPES.length)]);
+      tries++;
+      if(tries>MAX_GENERATE_TRIES) break;
+    } while(!canPlaceAny(piece));
+    newPieces.push(piece);
+  }
+  currentPieces = newPieces;
+  renderPieces();
+
+  if(!canPlaceAnyPieces(currentPieces)){
+    gameOver();
+  }
+}
+
+/* Рендер фигур */
+function renderPieces(){
+  piecesEl.innerHTML='';
+  currentPieces.forEach((piece,idx)=>{
+    const pw = document.createElement('div');
+    pw.className='pieceWrap';
+    const p = document.createElement('div');
+    p.className='piece';
+    p.draggable = true;
+    p.dataset.idx = idx;
+    p.style.gridTemplateColumns = `repeat(${piece[0].length}, var(--cell-size))`;
+    p.style.gridTemplateRows = `repeat(${piece.length}, var(--cell-size))`;
+    for(let i=0;i<piece.length;i++){
+      for(let j=0;j<piece[i].length;j++){
+        const c = document.createElement('div');
+        c.className='cellMini';
+        if(piece[i][j]!==null){
+          const b = document.createElement('div');
+          b.className = 'block color-'+piece[i][j];
+          c.appendChild(b);
+        }
+        p.appendChild(c);
+      }
+    }
+    p.addEventListener('dragstart',onDragStart);
+    p.addEventListener('dragend',onDragEnd);
+    pw.appendChild(p);
+    piecesEl.appendChild(pw);
+  });
+}
+
+/* Подсчёт потенциальных линий к очистке при размещении */
+function computeWillClear(r0, c0, piece){
+  const covered = new Set();
+  const rowsTouched = new Set();
+  const colsTouched = new Set();
+
+  for(let i=0;i<piece.length;i++){
+    for(let j=0;j<piece[i].length;j++){
+      if(piece[i][j]!==null){
+        const rr = r0 + i;
+        const cc = c0 + j;
+        const idx = rr*COLS+cc;
+        covered.add(idx);
+        rowsTouched.add(rr);
+        colsTouched.add(cc);
+      }
+    }
+  }
+
+  const rowsToClear = [];
+  const colsToClear = [];
+
+  // Проверяем только затронутые строки/столбцы
+  for(const rr of rowsTouched){
+    let full = true;
+    for(let c=0;c<COLS;c++){
+      const idx = rr*COLS + c;
+      if(field[idx]===null && !covered.has(idx)){ full = false; break; }
+    }
+    if(full) rowsToClear.push(rr);
+  }
+
+  for(const cc of colsTouched){
+    let full = true;
+    for(let r=0;r<ROWS;r++){
+      const idx = r*COLS + cc;
+      if(field[idx]===null && !covered.has(idx)){ full = false; break; }
+    }
+    if(full) colsToClear.push(cc);
+  }
+
+  return { rowsToClear, colsToClear };
+}
+
+/* Drag & Ghost с привязкой к центру + предпросмотр очистки линий */
+let dragData = null;
+// dragData: { piece, idx, anchor:{ax,ay}, topLeft:{r0,c0}|null }
+function onDragStart(e){
+  const idx = e.currentTarget.dataset.idx;
+  const piece = currentPieces[idx];
+  const anchor = getPieceAnchor(piece);
+
+  dragData = { piece, idx: +idx, anchor, topLeft: null };
+
+  const shim = document.createElement('canvas'); shim.width = 1; shim.height = 1;
+  e.dataTransfer.setDragImage(shim, 0, 0);
+  e.dataTransfer.setData('text/plain', 'dragging');
+  showGhost(piece);
+}
+function onDragEnd(){
+  dragData=null;
+  ghostEl.style.display='none';
+  for(let i=0;i<gameEl.children.length;i++){
+    gameEl.children[i].classList.remove('highlight','will-clear');
+  }
+}
+function showGhost(piece){
+  ghostEl.innerHTML='';
+  ghostEl.style.display='grid';
+  ghostEl.style.gridTemplateColumns = `repeat(${piece[0].length}, var(--cell-size))`;
+  ghostEl.style.gridTemplateRows = `repeat(${piece.length}, var(--cell-size))`;
+  ghostEl.classList.remove('invalid');
+  for(let i=0;i<piece.length;i++){
+    for(let j=0;j<piece[i].length;j++){
+      const c = document.createElement('div');
+      c.className='cellMini';
+      if(piece[i][j]!==null){
+        const b = document.createElement('div');
+        b.className = 'gblock color-'+piece[i][j];
+        c.appendChild(b);
+      }
+      ghostEl.appendChild(c);
+    }
+  }
+}
+gameEl.addEventListener('dragover', e=>{
+  e.preventDefault();
+  if(!dragData) return;
+  const rect = gameEl.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  const cellW = rect.width / COLS;
+  const cellH = rect.height / ROWS;
+
+  // Текущая клетка под курсором
+  const cc = Math.floor(x / cellW);
+  const rr = Math.floor(y / cellH);
+
+  // Центрируем: вычисляем потенциальный левый верх фигуры
+  const r0 = rr - dragData.anchor.ay;
+  const c0 = cc - dragData.anchor.ax;
+
+  // Позиция призрака по левому верхнему углу фигуры
+  ghostEl.style.left = (rect.left + c0 * cellW) + 'px';
+  ghostEl.style.top  = (rect.top  + r0 * cellH) + 'px';
+
+  // Сброс подсветок
+  for(let i=0;i<gameEl.children.length;i++){
+    gameEl.children[i].classList.remove('highlight','will-clear');
+  }
+
+  // Проверка валидности с учётом центрирования
+  const can = canPlaceAt(r0, c0, dragData.piece);
+  dragData.topLeft = { r0, c0 };
+  if(can){
+    ghostEl.classList.remove('invalid');
+    // Подсветим клетки фигуры
+    for(let i=0;i<dragData.piece.length;i++){
+      for(let j=0;j<dragData.piece[i].length;j++){
+        if(dragData.piece[i][j]!==null){
+          const rr2 = r0 + i, cc2 = c0 + j;
+          if(rr2>=0 && rr2<ROWS && cc2>=0 && cc2<COLS){
+            gameEl.children[rr2*COLS+cc2]?.classList.add('highlight');
+          }
+        }
+      }
+    }
+    // Подсчёт и подсветка потенциальных очищаемых линий
+    const { rowsToClear, colsToClear } = computeWillClear(r0, c0, dragData.piece);
+    for(const r of rowsToClear){
+      for(let c=0;c<COLS;c++){
+        gameEl.children[r*COLS + c]?.classList.add('will-clear');
+      }
+    }
+    for(const c of colsToClear){
+      for(let r=0;r<ROWS;r++){
+        gameEl.children[r*COLS + c]?.classList.add('will-clear');
+      }
+    }
+  } else {
+    ghostEl.classList.add('invalid');
+  }
+});
+function onDrop(e){
+  e.preventDefault();
+  if(!dragData) return;
+
+  let r = dragData.topLeft?.r0 ?? 0;
+  let c = dragData.topLeft?.c0 ?? 0;
+
+  if(dragData.topLeft == null){
+    const target = e.target.closest('.cell');
+    if(!target) return;
+    const idxCell = +target.dataset.index;
+    const rr = Math.floor(idxCell / COLS);
+    const cc = idxCell % COLS;
+    r = rr - dragData.anchor.ay;
+    c = cc - dragData.anchor.ax;
+  }
+
+  if(canPlaceAt(r,c,dragData.piece)){
+    placeShape(r,c,dragData.piece);
+    currentPieces.splice(dragData.idx,1);
+    dragData=null;
+    renderField();
+    updateScoreAfterPlacement();
+
+    if(currentPieces.length===0){
+      generatePieces();
+    } else {
+      renderPieces();
+      if(!canPlaceAnyPieces(currentPieces)){
+        gameOver();
+      }
+    }
+  }
+}
+function onCellDragEnter(e){ /* no-op */ }
+function onCellDragLeave(e){ /* no-op */ }
+
+/* Счёт и комбо */
+function updateScoreAfterPlacement(){
+  let cleared = clearLines();
+  if(cleared>0){
+    combo++;
+    score += 100 * cleared * combo;
+    comboEl.style.display = 'inline';
+    comboEl.textContent = 'Комбо x' + combo;
+  } else {
+    combo=0;
+    comboEl.style.display='none';
+    score += 10;
+  }
+  scoreEl.textContent = 'Очки: ' + score;
+  renderField();
+}
+
+/* Игра: конец/сброс */
+function gameOver(){
+  alert(`Игра окончена!\nВаш результат: ${score} очков.`);
+  saveScore();
+  showHighscores();
+  showNicknameModal();
+}
+function resetGame(){
+  field.fill(null);
+  score=0; combo=0;
+  scoreEl.textContent='Очки: 0';
+  comboEl.style.display='none';
+  renderField();
+  generatePieces(); // новая тройка
+}
+
+/* Ник и рекорды (один ник — только лучший результат) */
+resetBtn.addEventListener('click', () => { showNicknameModal(); });
+function showNicknameModal(){
+  nicknameModal.style.display = 'flex';
+  nicknameInput.value = playerName || localStorage.getItem(NAME_KEY) || '';
+  setTimeout(()=>nicknameInput.focus(),0);
+}
+startGameBtn.addEventListener('click', () => {
+  const name = nicknameInput.value.trim();
+  if(name.length===0){
+    alert('Пожалуйста, введите ник.');
+    nicknameInput.focus();
+    return;
+  }
+  playerName = name;
+  localStorage.setItem(NAME_KEY, playerName);
+  nicknameModal.style.display = 'none';
+  resetGame();
+});
+
+function loadHighscores(){
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if(!raw) return [];
+  try { 
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { 
+    return []; 
+  }
+}
+function saveHighscores(scores){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(scores));
+}
+// Склеиваем дубликаты по нику, оставляя максимальный результат
+function normalizeScores(list){
+  const map = new Map();
+  for(const item of list || []){
+    if(!item || typeof item.name !== 'string') continue;
+    const key = item.name.trim(); // сделайте .toLowerCase() если хотите игнорировать регистр
+    const prev = map.get(key);
+    const val = Number(item.score) || 0;
+    if(!prev || val > prev.score){
+      map.set(key, { name: key, score: val });
+    }
+  }
+  return Array.from(map.values()).sort((a,b)=>b.score - a.score);
+}
+function saveScore(){
+  if(!playerName) return;
+  const name = playerName.trim();
+  let scores = loadHighscores();
+  scores = normalizeScores([...scores, { name, score }]);
+  if(scores.length > 5) scores = scores.slice(0,5); // лимит топ-5
+  saveHighscores(scores);
+}
+function escapeHtml(s){
+  return String(s)
+    .replaceAll('&','&amp;').replaceAll('<','&lt;')
+    .replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'","&#039;");
+}
+function showHighscores(){
+  let scores = normalizeScores(loadHighscores());
+  highscoresBody.innerHTML = '';
+  if(scores.length===0){
+    highscoresBody.innerHTML = `<tr><td colspan="3">Пока нет рекордов</td></tr>`;
+    return;
+  }
+  scores.forEach((entry,i)=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${i+1}</td><td>${escapeHtml(entry.name)}</td><td>${entry.score}</td>`;
+    highscoresBody.appendChild(tr);
+  });
+}
+
+/* Старт */
+showHighscores();
+showNicknameModal();
+initBoard();
+renderField();
+</script>
+</body>
+</html>

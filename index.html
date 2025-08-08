@@ -21,7 +21,7 @@
   #boardWrap{background:#11121a;padding:12px;border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,0.6)}
   #game{
     display:grid;grid-template-columns:repeat(8,var(--cell-size));grid-gap:var(--gap);width:max-content;
-    touch-action:none;
+    touch-action:none; /* можно тащить по полю без скролла на мобилках */
   }
   .cell{
     width:var(--cell-size);height:var(--cell-size);background:#171824;border-radius:8px;border:1px solid #2a2f45;
@@ -50,7 +50,10 @@
 
   #pieces{display:flex;gap:12px;margin-top:14px;flex-wrap:wrap}
   .pieceWrap{background:rgba(255,255,255,0.03);padding:8px;border-radius:10px;display:flex;flex-direction:column;align-items:center}
-  .piece{display:grid;gap:6px;cursor:grab;-webkit-user-drag:element}
+  .piece{
+    display:grid;gap:6px;cursor:grab;-webkit-user-drag:element;
+    touch-action:none; /* не скроллить страницу при перетаскивании пальцем */
+  }
   .piece.selected{background:#0b0c12;border-radius:8px;padding:6px}
   .cellMini{width:var(--cell-size);height:var(--cell-size);display:flex;align-items:center;justify-content:center}
   .piece .block{opacity:1;transform:scale(1)}
@@ -92,6 +95,16 @@
   #nicknameModalContent button {
     margin-top: 12px; padding: 8px 20px; border-radius: 8px; border: none; background: #ffd166; color: #111; font-weight: 700; cursor: pointer;
   }
+
+  /* Адаптивная шкала клеток */
+  @media (max-width: 480px) {
+    :root{ --cell-size: 44px; --gap: 5px; }
+    body{ margin: 12px; }
+    #highscores{ width: 100%; max-width: 360px; }
+  }
+  @media (max-width: 360px) {
+    :root{ --cell-size: 40px; --gap: 4px; }
+  }
 </style>
 </head>
 <body>
@@ -105,7 +118,7 @@
 <div id="pieces"></div>
 <div id="ghost"></div>
 
- Модалка для ника 
+Модалка для ника 
 <div id="nicknameModal">
   <div id="nicknameModalContent">
     <div>Введите ваш ник:</div>
@@ -115,7 +128,7 @@
   </div>
 </div>
 
- Таблица рекордов 
+Таблица рекордов 
 <div id="highscores">
   <h2>Таблица рекордов</h2>
   <table>
@@ -307,7 +320,6 @@ function generatePieces(){
   }
   currentPieces = newPieces;
   renderPieces();
-
   if(!canPlaceAnyPieces(currentPieces)){
     gameOver();
   }
@@ -337,8 +349,12 @@ function renderPieces(){
         p.appendChild(c);
       }
     }
+    // Десктоп: HTML5 Drag&Drop
     p.addEventListener('dragstart',onDragStart);
     p.addEventListener('dragend',onDragEnd);
+    // Мобилки/планшеты: Pointer Events (не мешаем мыши)
+    p.addEventListener('pointerdown', onPiecePointerDown, { passive: false });
+
     pw.appendChild(p);
     piecesEl.appendChild(pw);
   });
@@ -349,7 +365,6 @@ function computeWillClear(r0, c0, piece){
   const covered = new Set();
   const rowsTouched = new Set();
   const colsTouched = new Set();
-
   for(let i=0;i<piece.length;i++){
     for(let j=0;j<piece[i].length;j++){
       if(piece[i][j]!==null){
@@ -362,10 +377,8 @@ function computeWillClear(r0, c0, piece){
       }
     }
   }
-
   const rowsToClear = [];
   const colsToClear = [];
-
   // Проверяем только затронутые строки/столбцы
   for(const rr of rowsTouched){
     let full = true;
@@ -375,7 +388,6 @@ function computeWillClear(r0, c0, piece){
     }
     if(full) rowsToClear.push(rr);
   }
-
   for(const cc of colsTouched){
     let full = true;
     for(let r=0;r<ROWS;r++){
@@ -384,20 +396,17 @@ function computeWillClear(r0, c0, piece){
     }
     if(full) colsToClear.push(cc);
   }
-
   return { rowsToClear, colsToClear };
 }
 
 /* Drag & Ghost с привязкой к центру + предпросмотр очистки линий */
 let dragData = null;
-// dragData: { piece, idx, anchor:{ax,ay}, topLeft:{r0,c0}|null }
+// dragData: { piece, idx, anchor:{ax,ay}, topLeft:{r0,c0}|null, mode?:'html5'|'pointer', pointerId?, sourceEl? }
 function onDragStart(e){
   const idx = e.currentTarget.dataset.idx;
   const piece = currentPieces[idx];
   const anchor = getPieceAnchor(piece);
-
-  dragData = { piece, idx: +idx, anchor, topLeft: null };
-
+  dragData = { piece, idx: +idx, anchor, topLeft: null, mode: 'html5' };
   const shim = document.createElement('canvas'); shim.width = 1; shim.height = 1;
   e.dataTransfer.setDragImage(shim, 0, 0);
   e.dataTransfer.setData('text/plain', 'dragging');
@@ -431,30 +440,25 @@ function showGhost(piece){
 }
 gameEl.addEventListener('dragover', e=>{
   e.preventDefault();
-  if(!dragData) return;
+  if(!dragData || dragData.mode !== 'html5') return;
   const rect = gameEl.getBoundingClientRect();
   const x = e.clientX - rect.left;
   const y = e.clientY - rect.top;
   const cellW = rect.width / COLS;
   const cellH = rect.height / ROWS;
-
   // Текущая клетка под курсором
   const cc = Math.floor(x / cellW);
   const rr = Math.floor(y / cellH);
-
   // Центрируем: вычисляем потенциальный левый верх фигуры
   const r0 = rr - dragData.anchor.ay;
   const c0 = cc - dragData.anchor.ax;
-
   // Позиция призрака по левому верхнему углу фигуры
   ghostEl.style.left = (rect.left + c0 * cellW) + 'px';
   ghostEl.style.top  = (rect.top  + r0 * cellH) + 'px';
-
   // Сброс подсветок
   for(let i=0;i<gameEl.children.length;i++){
     gameEl.children[i].classList.remove('highlight','will-clear');
   }
-
   // Проверка валидности с учётом центрирования
   const can = canPlaceAt(r0, c0, dragData.piece);
   dragData.topLeft = { r0, c0 };
@@ -490,10 +494,8 @@ gameEl.addEventListener('dragover', e=>{
 function onDrop(e){
   e.preventDefault();
   if(!dragData) return;
-
   let r = dragData.topLeft?.r0 ?? 0;
   let c = dragData.topLeft?.c0 ?? 0;
-
   if(dragData.topLeft == null){
     const target = e.target.closest('.cell');
     if(!target) return;
@@ -503,14 +505,12 @@ function onDrop(e){
     r = rr - dragData.anchor.ay;
     c = cc - dragData.anchor.ax;
   }
-
   if(canPlaceAt(r,c,dragData.piece)){
     placeShape(r,c,dragData.piece);
     currentPieces.splice(dragData.idx,1);
     dragData=null;
     renderField();
     updateScoreAfterPlacement();
-
     if(currentPieces.length===0){
       generatePieces();
     } else {
@@ -523,6 +523,117 @@ function onDrop(e){
 }
 function onCellDragEnter(e){ /* no-op */ }
 function onCellDragLeave(e){ /* no-op */ }
+
+/* Mobile/Tablet: Pointer Events */
+function onPiecePointerDown(e){
+  // Не перехватываем мышь — пусть работает HTML5 DnD
+  if(e.pointerType === 'mouse') return;
+  e.preventDefault();
+  const el = e.currentTarget;
+  const idx = el.dataset.idx;
+  const piece = currentPieces[idx];
+  const anchor = getPieceAnchor(piece);
+
+  dragData = { piece, idx: +idx, anchor, topLeft: null, mode: 'pointer', pointerId: e.pointerId, sourceEl: el };
+
+  // На время pointer-сессии выключаем нативный drag, чтобы не конфликтовал
+  el.draggable = false;
+  try { el.setPointerCapture(e.pointerId); } catch {}
+
+  showGhost(piece);
+  pointerUpdate(e); // моментальный предпросмотр под пальцем
+
+  window.addEventListener('pointermove', pointerUpdate, { passive: false });
+  window.addEventListener('pointerup', pointerUp, { passive: false });
+  window.addEventListener('pointercancel', pointerUp, { passive: false });
+}
+function pointerUpdate(e){
+  if(!dragData || dragData.mode !== 'pointer' || e.pointerId !== dragData.pointerId) return;
+  e.preventDefault();
+  const rect = gameEl.getBoundingClientRect();
+  const cellW = rect.width / COLS;
+  const cellH = rect.height / ROWS;
+
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  const cc = Math.floor(x / cellW);
+  const rr = Math.floor(y / cellH);
+
+  const r0 = rr - dragData.anchor.ay;
+  const c0 = cc - dragData.anchor.ax;
+  dragData.topLeft = { r0, c0 };
+
+  // Позиция призрака
+  ghostEl.style.left = (rect.left + c0 * cellW) + 'px';
+  ghostEl.style.top  = (rect.top  + r0 * cellH) + 'px';
+
+  // Сброс подсветок
+  for(let i=0;i<gameEl.children.length;i++){
+    gameEl.children[i].classList.remove('highlight','will-clear');
+  }
+
+  const can = canPlaceAt(r0, c0, dragData.piece);
+  if(can){
+    ghostEl.classList.remove('invalid');
+    // Подсветка фигуры
+    for(let i=0;i<dragData.piece.length;i++){
+      for(let j=0;j<dragData.piece[i].length;j++){
+        if(dragData.piece[i][j]!==null){
+          const rr2 = r0 + i, cc2 = c0 + j;
+          if(rr2>=0 && rr2<ROWS && cc2>=0 && cc2<COLS){
+            gameEl.children[rr2*COLS+cc2]?.classList.add('highlight');
+          }
+        }
+      }
+    }
+    // Подсветка потенциальной очистки
+    const { rowsToClear, colsToClear } = computeWillClear(r0, c0, dragData.piece);
+    for(const r of rowsToClear){
+      for(let c=0;c<COLS;c++){
+        gameEl.children[r*COLS + c]?.classList.add('will-clear');
+      }
+    }
+    for(const c of colsToClear){
+      for(let r=0;r<ROWS;r++){
+        gameEl.children[r*COLS + c]?.classList.add('will-clear');
+      }
+    }
+  } else {
+    ghostEl.classList.add('invalid');
+  }
+}
+function pointerUp(e){
+  if(!dragData || dragData.mode !== 'pointer' || e.pointerId !== dragData.pointerId) return;
+  e.preventDefault();
+
+  if(dragData.topLeft && canPlaceAt(dragData.topLeft.r0, dragData.topLeft.c0, dragData.piece)){
+    placeShape(dragData.topLeft.r0, dragData.topLeft.c0, dragData.piece);
+    currentPieces.splice(dragData.idx,1);
+    renderField();
+    updateScoreAfterPlacement();
+    if(currentPieces.length===0){
+      generatePieces();
+    } else {
+      renderPieces();
+      if(!canPlaceAnyPieces(currentPieces)){
+        gameOver();
+      }
+    }
+  }
+
+  try { dragData.sourceEl.releasePointerCapture(dragData.pointerId); } catch {}
+  dragData.sourceEl.draggable = true;
+
+  dragData=null;
+  ghostEl.style.display='none';
+  for(let i=0;i<gameEl.children.length;i++){
+    gameEl.children[i].classList.remove('highlight','will-clear');
+  }
+
+  window.removeEventListener('pointermove', pointerUpdate);
+  window.removeEventListener('pointerup', pointerUp);
+  window.removeEventListener('pointercancel', pointerUp);
+}
 
 /* Счёт и комбо */
 function updateScoreAfterPlacement(){
@@ -576,7 +687,6 @@ startGameBtn.addEventListener('click', () => {
   nicknameModal.style.display = 'none';
   resetGame();
 });
-
 function loadHighscores(){
   const raw = localStorage.getItem(STORAGE_KEY);
   if(!raw) return [];
